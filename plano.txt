@@ -1,0 +1,36 @@
+Requisitos para a Modernização dos Cartórios com Blockchain e Contratos Inteligentes
+Baseado no trabalho "Blockchain e Contratos Inteligentes nos Cartórios Brasileiros: Redução de Burocracia e Ganhos de Eficiência," o protótipo do sistema de modernização dos cartórios precisará atender aos seguintes requisitos, que visam garantir segurança, eficiência, e transparência.
+
+Requisitos Funcionais
+
+Registro e Autenticação de Documentos: O sistema deve permitir o registro e a autenticação de documentos legais, como registros imobiliários e transferências de veículos, utilizando a tecnologia blockchain para assegurar a imutabilidade dos dados.
+
+Automação de Transações: Através de contratos inteligentes, o sistema deve automatizar processos cartoriais, como compra e venda de propriedades e registro de bens móveis, reduzindo o tempo de processamento.
+
+Tokenização de Ativos: O protótipo deve possibilitar a tokenização de ativos, como imóveis e veículos, representando-os digitalmente por meio de tokens não fungíveis (NFTs - ERC-721) ou outros tipos de tokens (ERC-20), facilitando sua negociação e registro de forma segura e descentralizada.
+
+
+Rastreabilidade: O sistema deve garantir a rastreabilidade completa das transações para permitir a auditoria de registros públicos.
+
+
+Requisitos Técnicos
+
+Identidade Digital e Criptografia: O sistema deve utilizar sistemas de identidade digital e criptografia de chave pública (PKI) para assegurar a privacidade e a autenticidade das transações e dos usuários.
+
+
+Controle de Acesso: Deve ser implementado um modelo de controle de acesso baseado em permissões para garantir que apenas partes autorizadas possam acessar dados sensíveis.
+
+
+Arquitetura de Blockchain: A arquitetura do sistema deve ser baseada em consenso e hashing criptográfico para garantir a integridade e a resistência a fraudes dos dados.
+
+Modelagem de Processos: O protótipo deve ser construído com base em modelagens de processos padronizadas, utilizando notações como BPMN (Business Process Model and Notation) e UML (Unified Modeling Language) para ilustrar sua viabilidade operacional.
+
+
+Interoperabilidade: O sistema deve ser capaz de se integrar com outras plataformas, como sistemas bancários e órgãos públicos, para evitar redundâncias e aumentar a eficiência.
+
+Por que esses requisitos são importantes?
+
+A inclusão desses requisitos no seu protótipo permitirá que você demonstre como a tecnologia blockchain pode resolver os problemas atuais dos cartórios no Brasil. O sistema poderá exibir a redução de custos operacionais, o aumento da confiabilidade dos registros e a simplificação de procedimentos que hoje são lentos e burocráticos, contribuindo para a transformação digital do setor jurídico.
+
+
+Se precisar de ajuda com a próxima etapa do projeto, como a criação de diagramas UML ou BPMN, me diga!
