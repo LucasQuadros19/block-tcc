@@ -50,37 +50,48 @@ class Wallet:
             # A chave pública não precisa ser secreta
             with open(os.path.join(self.wallets_dir, f'{username}_public.pem'), 'w') as f:
                 f.write(self.public_key)
-            
+
             print(f"Carteira para {username} criada e criptografada com sucesso.")
 
     def load_keys(self, username, password):
         try:
             # Carrega a chave pública
-            with open(os.path.join(self.wallets_dir, f'{username}_public.pem'), 'r') as f:
-                public_key = f.read()
+            public_key = self.get_public_key_for_user(username)
+            if not public_key:
+                 raise FileNotFoundError
+
             self.public_key = public_key
 
             # Carrega e descriptografa a chave privada
             with open(os.path.join(self.wallets_dir, f'{username}_wallet.json'), 'r') as f:
                 data = json.load(f)
-            
+
             salt = binascii.unhexlify(data['salt'])
             nonce = binascii.unhexlify(data['nonce'])
             tag = binascii.unhexlify(data['tag'])
             ciphertext = binascii.unhexlify(data['ciphertext'])
-            
+
             key = PBKDF2(password, salt, dkLen=32)
             cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
             private_key = cipher.decrypt_and_verify(ciphertext, tag).decode('utf-8')
-            
+
             self.private_key = private_key
             return private_key, public_key
-        
+
         except FileNotFoundError:
             print(f"Carteira para {username} não encontrada. Criando uma nova.")
             self.create_keys()
             self.save_keys(username, password)
             return self.private_key, self.public_key
+            
+    def get_public_key_for_user(self, username):
+        """Método estático para pegar a chave pública de qualquer usuário."""
+        public_key_path = os.path.join(self.wallets_dir, f'{username}_public.pem')
+        if not os.path.exists(public_key_path):
+            return None
+        with open(public_key_path, 'r') as f:
+            return f.read()
+
 
     @staticmethod
     def sign_transaction(private_key_pem, transaction):

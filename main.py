@@ -13,6 +13,11 @@ import uuid
 import requests
 import time
 from datetime import datetime
+from config import NOTARY_USERNAME, NOTARY_PASSWORD
+
+# --- LISTA DE NÓS DA REDE ---
+NETWORK_NODES = ['127.0.0.1:5001', '127.0.0.1:5002', '127.0.0.1:5003']
+SYNC_INTERVAL_MS = 10000 # 10 segundos
 
 # --- Gerenciador de Usuários ---
 class UserManager:
@@ -21,6 +26,7 @@ class UserManager:
         os.makedirs(self.users_dir, exist_ok=True)
         self.filename = os.path.join(self.users_dir, filename)
         self.users = self.load_users()
+        self.ensure_notary_user_exists()
 
     def load_users(self):
         if not os.path.exists(self.filename): return {}
@@ -30,16 +36,22 @@ class UserManager:
 
     def save_users(self):
         with open(self.filename, 'w') as f: json.dump(self.users, f, indent=4)
+        
+    def ensure_notary_user_exists(self):
+        if NOTARY_USERNAME not in self.users:
+            print(f"Usuário cartório '{NOTARY_USERNAME}' não encontrado. Criando agora...")
+            self.register(NOTARY_USERNAME, NOTARY_PASSWORD, is_notary=True)
 
-    def register(self, username, password):
+    def register(self, username, password, is_notary=False):
         if not (username and password): return False, "Usuário e senha não podem estar em branco."
-        if username in self.users: return False, "Usuário já existe."
+        if username in self.users and not is_notary: return False, "Usuário já existe."
         password_hash = hashlib.sha256(password.encode()).hexdigest()
         wallet = Wallet()
         _, public_key = wallet.create_keys()
         wallet.save_keys(username, password)
         self.users[username] = {"password_hash": password_hash, "public_key": public_key}
         self.save_users()
+        if is_notary: print(f"Usuário especial '{username}' criado com sucesso.")
         return True, "Usuário registrado com sucesso."
 
     def login(self, username, password):
@@ -52,6 +64,16 @@ class UserManager:
                 print(e)
                 return None, None
         return None, None
+        
+    def get_notary_public_key(self):
+        notary_user = self.users.get(NOTARY_USERNAME)
+        if notary_user: return notary_user.get("public_key")
+        try:
+            wallet = Wallet()
+            return wallet.get_public_key_for_user(NOTARY_USERNAME)
+        except Exception as e:
+            print(f"ERRO CRÍTICO: Não foi possível carregar a chave pública do cartório. {e}")
+            return None
 
 # --- Aplicação Principal ---
 class MainApplication(BlockchainApp):
@@ -61,6 +83,7 @@ class MainApplication(BlockchainApp):
         self.user_manager = UserManager()
         self.current_username = None
         self.current_user_wallet = None
+        self.is_notary = False
         self.port = port
         self.blockchain = None
         self.flask_thread = None
@@ -69,11 +92,44 @@ class MainApplication(BlockchainApp):
         self.show_login_window()
 
     def initialize_blockchain(self):
-        self.blockchain = Blockchain(self.port)
+        notary_public_key = self.user_manager.get_notary_public_key()
+        if not notary_public_key:
+            self.destroy() 
+            return
+        
+        self.title(f"Blockchain Cartório - {self.current_username}")
+            
+        self.blockchain = Blockchain(self.port, notary_public_key)
         self.deiconify()
-        self.log_event("INICIALIZAÇÃO", f"Bem-vindo, {self.current_username}! Blockchain inicializada.")
+        
+        if self.current_username == NOTARY_USERNAME:
+            self.is_notary = True
+            self.log_event("INICIALIZAÇÃO", f"Bem-vindo, {self.current_username}! (Sessão de Cartório)")
+        else:
+            self.log_event("INICIALIZAÇÃO", f"Bem-vindo, {self.current_username}! Blockchain inicializada.")
 
-        # Conecta botões
+        my_address = f'127.0.0.1:{self.port}'
+        for node_address in NETWORK_NODES:
+            if node_address != my_address:
+                self.blockchain.add_node(node_address)
+        
+        self.flask_thread = threading.Thread(target=run_flask_app, args=(self.port,), daemon=True)
+        self.flask_thread.start()
+        
+        self.connect_widgets()
+        self.select_frame("profile")
+        
+        self.log_event("REDE", "Sincronizando com a rede ao iniciar...")
+        self.sync_chain()
+
+        self.after(SYNC_INTERVAL_MS, self.periodic_sync)
+
+    def periodic_sync(self):
+        self.log_event("REDE", "Executando sincronização periódica...")
+        self.sync_chain()
+        self.after(SYNC_INTERVAL_MS, self.periodic_sync)
+
+    def connect_widgets(self):
         self.main_view_button.configure(command=lambda: self.select_frame("blockchain"))
         self.profile_button.configure(command=lambda: self.select_frame("profile"))
         self.marketplace_button.configure(command=lambda: self.select_frame("marketplace"))
@@ -84,22 +140,10 @@ class MainApplication(BlockchainApp):
         self.faucet_button.configure(command=self.request_faucet_funds)
         self.transfer_button.configure(command=self.show_transfer_window)
         self.buy_button.configure(command=self.handle_buy_button_click)
-        
-        # Conecta eventos de tabelas
         self.blocks_table.bind('<<TreeviewSelect>>', self.on_block_select)
         self.contracts_table.bind('<<TreeviewSelect>>', self.on_contract_select)
-        self.all_tokens_table.bind('<<TreeviewSelect>>', self.on_explorer_token_select)
+        self.all_tokens_table.bind('<ButtonRelease-1>', self.on_explorer_token_select)
         self.token_table.bind('<ButtonRelease-1>', self.handle_token_action_click)
-        
-        if self.port == 5001: self.blockchain.add_node('127.0.0.1:5002')
-        elif self.port == 5002: self.blockchain.add_node('127.0.0.1:5001')
-        
-        self.flask_thread = threading.Thread(target=run_flask_app, args=(self.port,), daemon=True)
-        self.flask_thread.start()
-        
-        self.select_frame("profile")
-        self.log_event("REDE", "Sincronizando com a rede ao iniciar...")
-        self.sync_chain()
 
     def log_event(self, event_type, message):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -108,19 +152,25 @@ class MainApplication(BlockchainApp):
 
     def process_gui_queue(self):
         update_needed = False
-        for item in self.gui_queue:
-            if item.get("type") == "log":
-                self.audit_log_text.configure(state="normal")
-                self.audit_log_text.insert("0.0", item["message"])
-                self.audit_log_text.configure(state="disabled")
-            elif item.get("type") == "update_display":
-                update_needed = True
-        if update_needed:
-            self.update_all_displays()
-        self.gui_queue = []
-        self.after(250, self.process_gui_queue)
+        try:
+            for item in self.gui_queue:
+                if item.get("type") == "log":
+                    self.audit_log_text.configure(state="normal")
+                    self.audit_log_text.insert("0.0", item["message"])
+                    self.audit_log_text.configure(state="disabled")
+                elif item.get("type") == "update_display":
+                    update_needed = True
+            if update_needed: self.update_all_displays()
+            self.gui_queue = []
+        except Exception: pass
+        finally:
+            self.after(250, self.process_gui_queue)
 
     def mine_block(self):
+        if not self.blockchain.pending_transactions:
+            self.log_event("MINERAÇÃO", "Nenhuma transação pendente para minerar.")
+            return
+        
         last_block = self.blockchain.last_block
         proof = self.blockchain.proof_of_work(last_block['proof'])
         self.blockchain.add_transaction("0", self.current_user_wallet.public_key, "reward", {'type': 'MINING_REWARD'})
@@ -141,10 +191,10 @@ class MainApplication(BlockchainApp):
     def sync_chain(self):
         replaced = self.blockchain.resolve_conflicts()
         if replaced:
-            self.log_event("CONSENSO", "Cadeia local desatualizada. Substituída pela mais longa da rede.")
+            self.log_event("CONSENSO", "Cadeia local substituída pela mais longa da rede.")
+            self.update_all_displays()
         else:
             self.log_event("CONSENSO", "Cadeia local já está sincronizada.")
-        self.update_all_displays()
 
     def show_login_window(self):
         self.login_window = ctk.CTkToplevel(self)
@@ -179,6 +229,9 @@ class MainApplication(BlockchainApp):
     def handle_register(self):
         username = self.username_entry.get()
         password = self.password_entry.get()
+        if username == NOTARY_USERNAME:
+            self.msg_label.configure(text=f"'{NOTARY_USERNAME}' é um usuário reservado.", text_color="red")
+            return
         success, message = self.user_manager.register(username, password)
         if success:
             self.log_event("USUÁRIO", f"Novo usuário '{username}' registrado localmente.")
@@ -190,30 +243,30 @@ class MainApplication(BlockchainApp):
         for f in frames.values():
             f.grid_forget()
         frames[name].grid(row=0, column=0, sticky="nsew")
+        
+        if name == "profile":
+            if self.is_notary:
+                self.register_asset_button.grid(row=5, column=1, padx=20, pady=(10,0), sticky="se")
+            else:
+                self.register_asset_button.grid_remove()
         self.update_all_displays()
 
     def update_all_displays(self):
         if not self.blockchain: return
-        
-        # Block Explorer
-        for item in self.blocks_table.get_children(): self.blocks_table.delete(item)
-        for block in reversed(self.blockchain.chain):
-            block_hash = self.blockchain.hash(block)
-            self.blocks_table.insert("", "end", values=(block['index'], len(block['transactions']), f"{block_hash[:16]}..."), iid=block['index'])
-
-        # Profile
         address = self.current_user_wallet.public_key
         my_hash = hashlib.sha256(address.encode()).hexdigest()[:16]
         balance = self.blockchain.get_balance(address)
         tokens = self.blockchain.get_owned_tokens(address)
         self.username_label.configure(text=f"Bem-vindo, {self.current_username}!")
-        self.address_value.delete("1.0", ctk.END); self.address_value.insert("0.0", address)
+        self.address_value.configure(state="normal"); self.address_value.delete("1.0", ctk.END); self.address_value.insert("0.0", address); self.address_value.configure(state="disabled")
         self.my_hash_value.configure(text=my_hash)
         self.balance_value.configure(text=f"Saldo: {balance} Moedas")
         for item in self.token_table.get_children(): self.token_table.delete(item)
         for token in tokens: self.token_table.insert("", "end", values=(token, "Vender"), iid=token)
-
-        # Marketplace
+        for item in self.blocks_table.get_children(): self.blocks_table.delete(item)
+        for block in reversed(self.blockchain.chain):
+            block_hash = self.blockchain.hash(block)
+            self.blocks_table.insert("", "end", values=(block['index'], len(block['transactions']), f"{block_hash[:16]}..."), iid=block['index'])
         contracts = self.blockchain.get_contracts()
         for item in self.contracts_table.get_children(): self.contracts_table.delete(item)
         for cid, data in contracts.items():
@@ -224,22 +277,18 @@ class MainApplication(BlockchainApp):
             if time.time() > expires_timestamp and status == 'OPEN':
                 status = 'EXPIRADO'
             self.contracts_table.insert("", "end", values=(cid[:8], data['token_id'], data['price'], status, seller_hash, expires_str), iid=cid)
-        
-        # Asset Explorer
-        all_tokens = self.blockchain.state['tokens']
+        all_tokens = self.blockchain.state.get('tokens', {})
         for item in self.all_tokens_table.get_children(): self.all_tokens_table.delete(item)
         for token_id, owner_address in all_tokens.items():
             owner_hash = hashlib.sha256(owner_address.encode()).hexdigest()[:16]
             self.all_tokens_table.insert("", "end", values=(token_id, owner_hash), iid=token_id)
-    
+
     def on_block_select(self, event):
         selection = self.blocks_table.selection()
         if not selection: return
         block_index = int(selection[0])
         block = self.blockchain.chain[block_index - 1]
-        
         details = self.format_block_details(block)
-        
         self.block_details_label.configure(text=f"Detalhes do Bloco #{block_index}")
         self.block_details_text.configure(state="normal")
         self.block_details_text.delete("1.0", ctk.END)
@@ -256,7 +305,6 @@ class MainApplication(BlockchainApp):
         lines.append(f"HASH ATUAL...: {self.blockchain.hash(block)}")
         lines.append("-" * 60)
         lines.append("TRANSAÇÕES CONTIDAS NO BLOCO:")
-        
         for i, tx_data in enumerate(block['transactions']):
             tx = tx_data['transaction']; data = tx['data']; payload = data.get('payload', {})
             sender_hash = "SISTEMA" if tx['sender'] == "0" else hashlib.sha256(tx['sender'].encode()).hexdigest()[:16]
@@ -265,25 +313,20 @@ class MainApplication(BlockchainApp):
             lines.append(f"  TIPO...: {data.get('type')}")
             lines.append(f"  DE.....: {sender_hash}")
             lines.append(f"  PARA...: {recipient_hash}")
-            if data.get('type') == 'MINT_TOKEN':
-                lines.append(f"  ATIVO..: {payload.get('token_id')}")
+            if data.get('type') == 'MINT_TOKEN': lines.append(f"  ATIVO..: {payload.get('token_id')}")
             elif data.get('type') == 'CREATE_SALE_CONTRACT':
                 lines.append(f"  ATIVO..: {payload.get('token_id')}")
                 lines.append(f"  PREÇO..: {payload.get('price')} moedas")
-            elif data.get('type') == 'EXECUTE_SALE_CONTRACT':
-                lines.append(f"  CONTRATO: {payload.get('contract_id')[:16]}...")
-            elif data.get('type') == 'TRANSFER_CURRENCY':
-                lines.append(f"  VALOR..: {payload.get('amount')} moedas")
-
+            elif data.get('type') == 'EXECUTE_SALE_CONTRACT': lines.append(f"  CONTRATO: {payload.get('contract_id')[:16]}...")
+            elif data.get('type') == 'TRANSFER_CURRENCY': lines.append(f"  VALOR..: {payload.get('amount')} moedas")
         return "\n".join(lines)
-    
+
     def on_contract_select(self, event):
         selection = self.contracts_table.selection()
         if not selection:
             self.buy_button.configure(state="disabled")
             self.contract_conditions_text.configure(state="normal"); self.contract_conditions_text.delete("1.0", ctk.END); self.contract_conditions_text.configure(state="disabled")
             return
-        
         contract_id = selection[0]
         contract = self.blockchain.get_contracts().get(contract_id)
         if contract:
@@ -291,8 +334,8 @@ class MainApplication(BlockchainApp):
             self.contract_conditions_text.delete("1.0", ctk.END)
             self.contract_conditions_text.insert("1.0", contract.get('conditions', 'Nenhuma condição especificada.'))
             self.contract_conditions_text.configure(state="disabled")
-
-            if contract['status'] == 'OPEN' and contract['seller'] != self.current_user_wallet.public_key and time.time() <= contract['valid_until']:
+            is_expired = time.time() > contract.get('valid_until', 0)
+            if contract['status'] == 'OPEN' and contract['seller'] != self.current_user_wallet.public_key and not is_expired:
                 self.buy_button.configure(state="normal")
             else:
                 self.buy_button.configure(state="disabled")
@@ -302,16 +345,16 @@ class MainApplication(BlockchainApp):
         if not selection: return
         contract_id = selection[0]
         contract = self.blockchain.get_contracts().get(contract_id)
-        if contract:
-            self.execute_purchase(contract_id, contract)
+        if contract: self.execute_purchase(contract_id, contract)
 
     def on_explorer_token_select(self, event):
-        selection = self.all_tokens_table.selection()
-        if not selection: return
-        token_id = selection[0]
+        token_id = self.all_tokens_table.focus()
+        if not token_id: return
+
         self.token_history_label.configure(text=f"Histórico do Ativo: {token_id}")
-        history = self.blockchain.get_token_history(token_id)
-        history_text = json.dumps(history, indent=2, ensure_ascii=False)
+        history_list = self.blockchain.get_token_history(token_id)
+        history_text = "\n\n".join(history_list) if history_list else "Nenhum histórico encontrado para este ativo."
+        
         self.token_history_text.configure(state="normal")
         self.token_history_text.delete("1.0", ctk.END)
         self.token_history_text.insert("0.0", history_text)
@@ -325,6 +368,7 @@ class MainApplication(BlockchainApp):
     def show_transfer_window(self):
         window = ctk.CTkToplevel(self)
         window.title("Transferir Moedas")
+        window.grab_set()
         ctk.CTkLabel(window, text="Endereço Público do Destinatário:").pack(padx=20, pady=5)
         address_entry = ctk.CTkTextbox(window, width=400, height=100)
         address_entry.pack(padx=20, pady=5)
@@ -332,7 +376,7 @@ class MainApplication(BlockchainApp):
         amount_entry = ctk.CTkEntry(window)
         amount_entry.pack(padx=20, pady=5)
         def submit():
-            recipient = address_entry.get("1.0", "end-1c")
+            recipient = address_entry.get("1.0", "end-1c").strip()
             try: amount = int(amount_entry.get())
             except ValueError: return
             if not (recipient and amount > 0): return
@@ -340,43 +384,33 @@ class MainApplication(BlockchainApp):
             self._create_signed_transaction(recipient, {'type': 'TRANSFER_CURRENCY', 'payload': {'amount': amount}})
             window.destroy()
         ctk.CTkButton(window, text="Assinar e Transferir", command=submit).pack(padx=20, pady=20)
-    
+
     def handle_token_action_click(self, event):
         item_id = self.token_table.focus()
         if not item_id: return
         column = self.token_table.identify_column(event.x)
-        if column == '#2':
-            self.show_create_contract_window(item_id)
-            
+        if column == '#2': self.show_create_contract_window(item_id)
+
     def show_create_contract_window(self, token_id):
         window = ctk.CTkToplevel(self)
-        window.grab_set()
-        window.focus_force()
+        window.grab_set(); window.focus_force()
         window.title(f"Vender Ativo: {token_id}")
         ctk.CTkLabel(window, text="Preço de Venda (em Moedas):").pack(padx=20, pady=5)
-        price_entry = ctk.CTkEntry(window)
-        price_entry.pack(padx=20, pady=5)
-        
+        price_entry = ctk.CTkEntry(window); price_entry.pack(padx=20, pady=5)
         ctk.CTkLabel(window, text="Válido por (horas):").pack(padx=20, pady=5)
-        hours_entry = ctk.CTkEntry(window)
-        hours_entry.insert(0, "24")
-        hours_entry.pack(padx=20, pady=5)
-        
+        hours_entry = ctk.CTkEntry(window); hours_entry.insert(0, "24"); hours_entry.pack(padx=20, pady=5)
         ctk.CTkLabel(window, text="Condições da Venda (Opcional):").pack(padx=20, pady=5)
-        conditions_entry = ctk.CTkTextbox(window, height=100, width=300)
-        conditions_entry.pack(padx=20, pady=5)
+        conditions_entry = ctk.CTkTextbox(window, height=100, width=300); conditions_entry.pack(padx=20, pady=5)
         def submit():
             try:
-                price = int(price_entry.get())
-                hours = float(hours_entry.get())
+                price, hours = int(price_entry.get()), float(hours_entry.get())
             except ValueError: return
             if not price > 0: return
-            
             valid_until_timestamp = time.time() + (hours * 3600)
             conditions = conditions_entry.get("1.0", "end-1c")
             self.log_event("CONTRATO", f"Criando contrato de venda para o ativo '{token_id}' por {price} moedas.")
             self._create_signed_transaction("0", {
-                'type': 'CREATE_SALE_CONTRACT', 
+                'type': 'CREATE_SALE_CONTRACT',
                 'payload': {'contract_id': str(uuid.uuid4()), 'token_id': token_id, 'price': price, 'conditions': conditions, 'valid_until': valid_until_timestamp}
             })
             window.destroy()
@@ -392,29 +426,31 @@ class MainApplication(BlockchainApp):
         self._create_signed_transaction(contract['seller'], {'type': 'EXECUTE_SALE_CONTRACT', 'payload': {'contract_id': contract_id}})
 
     def show_register_asset_window(self):
+        if not self.is_notary: return
         window = ctk.CTkToplevel(self)
-        window.grab_set()
-        window.focus_force()
-        window.title("Registrar Novo Ativo")
+        window.grab_set(); window.focus_force()
+        window.title("Registrar Novo Ativo (Cartório)")
         ctk.CTkLabel(window, text="ID Único do Ativo (Ex: Matrícula do Imóvel):").pack(padx=20, pady=5)
-        token_id_entry = ctk.CTkEntry(window, width=250)
-        token_id_entry.pack(padx=20, pady=5)
+        token_id_entry = ctk.CTkEntry(window, width=350); token_id_entry.pack(padx=20, pady=5)
+        ctk.CTkLabel(window, text="Chave Pública do Primeiro Proprietário:").pack(padx=20, pady=(10, 5))
+        owner_public_key_entry = ctk.CTkTextbox(window, width=350, height=100); owner_public_key_entry.pack(padx=20, pady=5)
         def submit():
             token_id = token_id_entry.get()
-            if not token_id: return
-            self.log_event("CONTRATO", f"Iniciando registro do ativo (token) '{token_id}'.")
-            self._create_signed_transaction(self.current_user_wallet.public_key, {'type': 'MINT_TOKEN', 'payload': {'token_id': token_id}})
+            owner_public_key = owner_public_key_entry.get("1.0", "end-1c").strip()
+            if not token_id or not owner_public_key: return
+            self.log_event("CARTÓRIO", f"Iniciando registro do ativo '{token_id}' para o dono '{owner_public_key[:20]}...'.")
+            self._create_signed_transaction(owner_public_key, {'type': 'MINT_TOKEN', 'payload': {'token_id': token_id}})
             window.destroy()
-        ctk.CTkButton(window, text="Registrar e Minerar", command=submit).pack(padx=20, pady=20)
+        ctk.CTkButton(window, text="Assinar Registro e Minerar", command=submit).pack(padx=20, pady=20)
 
     def _create_signed_transaction(self, recipient, data):
         tx_core = {'sender': self.current_user_wallet.public_key, 'recipient': recipient, 'data': data}
         signature = Wallet.sign_transaction(self.current_user_wallet.private_key, tx_core)
         if self.blockchain.add_transaction(tx_core['sender'], tx_core['recipient'], signature, data):
-            print("Transação assinada e adicionada à pool.")
+            print("Transação assinada e adicionada à pool. Minerando...")
             self.mine_block()
         else:
-            print("ERRO: Falha na verificação da transação.")
+            self.log_event("ERRO", "Falha na verificação da transação. Verifique o log de auditoria.")
 
 # --- Servidor Flask ---
 app_flask = Flask(__name__)
@@ -426,15 +462,12 @@ def full_chain():
 def new_block():
     block = request.get_json()
     if not block: return "Dados do bloco ausentes.", 400
-    
-    added = main_app.blockchain.add_block(block)
-    
-    if added:
+    if main_app.blockchain.add_block(block):
         main_app.log_event("REDE", f"Bloco #{block['index']} recebido e aceito.")
         main_app.gui_queue.append({"type": "update_display"})
         return "Bloco aceito.", 200
     else:
-        main_app.log_event("CONSENSO", "Bloco recebido inválido/fora de ordem. Forçando sincronização.")
+        main_app.log_event("CONSENSO", f"Bloco #{block.get('index')} recebido inválido. Forçando sincronização.")
         main_app.sync_chain()
         return "Bloco rejeitado, forçando sincronização.", 400
 
@@ -442,6 +475,6 @@ def run_flask_app(port):
     app_flask.run(host='0.0.0.0', port=port)
 
 if __name__ == '__main__':
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5001
     main_app = MainApplication(port=port)
     main_app.mainloop()
