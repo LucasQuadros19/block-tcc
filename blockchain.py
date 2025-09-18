@@ -209,6 +209,7 @@ class Blockchain:
                 tx = tx_data['transaction']
                 tx_type = tx['data'].get('type')
                 payload = tx['data'].get('payload', {})
+                
                 current_tx_token_id = None
                 
                 if tx_type in ['MINT_TOKEN', 'CREATE_SALE_CONTRACT']:
@@ -222,6 +223,7 @@ class Blockchain:
                 if current_tx_token_id == token_id:
                     tx_hash = self.hash_transaction(tx)
                     timestamp = time.strftime('%d/%m/%Y %H:%M:%S', time.localtime(block['timestamp']))
+                    
                     card = [separator]
                     
                     if tx_type == 'MINT_TOKEN':
@@ -231,8 +233,8 @@ class Blockchain:
                         card.append(f"BLOCO:          #{block['index']} ({self.hash(block)[:16]}...)")
                         card.append(f"HASH DA TX:     {tx_hash[:16]}...")
                         card.append("\nDETALHES:")
-                        card.append(f"  - Ativo '{token_id}' criado pelo Cartório.")
-                        card.append(f"  - Dono Inicial: {owner_hash}")
+                        card.append(f"  - Ativo (Token ID): {token_id}")
+                        card.append(f"  - Dono Inicial:     {owner_hash}")
 
                     elif tx_type == 'CREATE_SALE_CONTRACT':
                         seller_hash = hashlib.sha256(tx['sender'].encode()).hexdigest()[:16]
@@ -242,8 +244,9 @@ class Blockchain:
                         card.append(f"BLOCO:          #{block['index']} ({self.hash(block)[:16]}...)")
                         card.append(f"HASH DA TX:     {tx_hash[:16]}...")
                         card.append("\nDETALHES:")
-                        card.append(f"  - Vendedor:   {seller_hash}")
-                        card.append(f"  - Preço:      {price} moedas")
+                        card.append(f"  - Ativo (Token ID): {token_id}")
+                        card.append(f"  - Vendedor:         {seller_hash}")
+                        card.append(f"  - Preço:            {price} moedas")
 
                     elif tx_type == 'EXECUTE_SALE_CONTRACT':
                         original_contract = self._find_contract_in_history(payload.get('contract_id'))
@@ -256,28 +259,24 @@ class Blockchain:
                             card.append(f"BLOCO:          #{block['index']} ({self.hash(block)[:16]}...)")
                             card.append(f"HASH DA TX:     {tx_hash[:16]}...")
                             card.append("\nDETALHES:")
-                            card.append(f"  - De (Vendedor): {seller_hash}")
+                            card.append(f"  - Ativo (Token ID):   {token_id}")
+                            card.append(f"  - De (Vendedor):    {seller_hash}")
                             card.append(f"  - Para (Comprador): {buyer_hash}")
-                            card.append(f"  - Valor: {price} moedas")
+                            card.append(f"  - Valor:            {price} moedas")
                     
                     card.append(separator)
                     history.append("\n".join(card))
+        
         return history
 
     def _find_contract_in_history(self, contract_id):
-        """
-        CORRIGIDO: Agora retorna um dicionário completo com os dados do payload
-        E a chave 'seller', que é o remetente da transação de criação.
-        """
         for block in reversed(self.chain):
             for tx_data in block['transactions']:
                 tx = tx_data['transaction']
                 if tx['data'].get('type') == 'CREATE_SALE_CONTRACT':
                     payload = tx['data'].get('payload', {})
                     if payload.get('contract_id') == contract_id:
-                        # Cria um novo dicionário com os dados do payload
                         contract_data = payload.copy()
-                        # Adiciona a informação do vendedor, que é o remetente da transação
                         contract_data['seller'] = tx['sender']
                         return contract_data
         return None

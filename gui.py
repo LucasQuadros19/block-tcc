@@ -5,7 +5,7 @@ from tkinter import ttk
 class BlockchainApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-       
+        self.title("Blockchain Cartório - Protótipo")
         self.geometry("1200x800")
 
         self.grid_columnconfigure(1, weight=1)
@@ -119,8 +119,9 @@ class BlockchainApp(ctk.CTk):
         self.register_asset_button.grid(row=5, column=1, padx=20, pady=(10,0), sticky="se")
         
         self.token_table = ttk.Treeview(frame, columns=('token_id', 'action'), show='headings')
-        self.token_table.heading('token_id', text='ID do Ativo')
+        self.token_table.heading('token_id', text='Ativo [Token NFT]')
         self.token_table.heading('action', text='Ação')
+        self.token_table.column('token_id', width=300)
         self.token_table.column('action', width=120, anchor='center')
         self.token_table.grid(row=6, column=0, columnspan=2, padx=20, pady=10, sticky="nsew")
         frame.grid_rowconfigure(6, weight=1)
@@ -135,11 +136,12 @@ class BlockchainApp(ctk.CTk):
         
         self.contracts_table = ttk.Treeview(frame, columns=('contract_id', 'token_id', 'price', 'status', 'seller', 'expires'), show='headings')
         self.contracts_table.heading('contract_id', text='ID Contrato')
-        self.contracts_table.heading('token_id', text='ID Ativo')
+        self.contracts_table.heading('token_id', text='Ativo [Token NFT]')
         self.contracts_table.heading('price', text='Preço')
         self.contracts_table.heading('status', text='Status')
         self.contracts_table.heading('seller', text='Vendedor (Hash)')
         self.contracts_table.heading('expires', text='Expira em')
+        self.contracts_table.column('token_id', width=250)
         self.contracts_table.column('price', anchor='center', width=80)
         self.contracts_table.column('status', anchor='center', width=80)
         self.contracts_table.column('expires', anchor='center', width=150)
@@ -177,8 +179,9 @@ class BlockchainApp(ctk.CTk):
         left_pane.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(left_pane, text="Todos os Ativos Registrados").pack(pady=5)
         self.all_tokens_table = ttk.Treeview(left_pane, columns=('token_id', 'owner'), show='headings')
-        self.all_tokens_table.heading('token_id', text='ID do Ativo')
+        self.all_tokens_table.heading('token_id', text='Ativo [Token NFT]')
         self.all_tokens_table.heading('owner', text='Dono Atual (Hash)')
+        self.all_tokens_table.column('token_id', width=250)
         self.all_tokens_table.pack(fill="both", expand=True, padx=5, pady=5)
         
         right_pane = ctk.CTkFrame(frame)
