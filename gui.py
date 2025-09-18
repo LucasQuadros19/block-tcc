@@ -5,7 +5,7 @@ from tkinter import ttk
 class BlockchainApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Blockchain Cartório - Protótipo")
+       
         self.geometry("1200x800")
 
         self.grid_columnconfigure(1, weight=1)

@@ -1,0 +1,3 @@
+
+NOTARY_USERNAME = "cartorio"
+NOTARY_PASSWORD = "123"

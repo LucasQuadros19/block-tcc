@@ -10,16 +10,17 @@ MINING_REWARD = 100
 FAUCET_REWARD = 100
 
 class Blockchain:
-    def __init__(self, port):
+    def __init__(self, port, notary_public_key):
         self.chain = []
         self.pending_transactions = []
         self.nodes = set()
         self.port = port
-        
+        self.notary_public_key = notary_public_key
+
         self.blockchain_dir = "data/blockchain"
         os.makedirs(self.blockchain_dir, exist_ok=True)
         self.chain_file = os.path.join(self.blockchain_dir, f'blockchain_{self.port}.json')
-        
+
         self.state = {
             'balances': {},
             'tokens': {},
@@ -27,7 +28,7 @@ class Blockchain:
         }
 
         self.load_chain_and_rebuild_state()
-        
+
         if not self.chain:
             self.create_block(previous_hash='0', proof=100)
 
@@ -43,7 +44,6 @@ class Blockchain:
         payload = tx['data'].get('payload', {})
         sender = tx['sender']
         recipient = tx['recipient']
-        
         sender_balance = self.state['balances'].get(sender, 0)
         recipient_balance = self.state['balances'].get(recipient, 0)
 
@@ -51,77 +51,58 @@ class Blockchain:
             reward = MINING_REWARD if tx_type == 'MINING_REWARD' else FAUCET_REWARD
             self.state['balances'][recipient] = recipient_balance + reward
             return
+            
+        if tx_type == 'MINT_TOKEN':
+            if sender != self.notary_public_key: return
+            token_id = payload.get('token_id')
+            if token_id not in self.state['tokens']:
+                self.state['tokens'][token_id] = recipient
         
-        if tx_type == 'TRANSFER_CURRENCY':
+        elif tx_type == 'TRANSFER_CURRENCY':
             amount = payload.get('amount')
             if sender_balance >= amount:
                 self.state['balances'][sender] = sender_balance - amount
                 self.state['balances'][recipient] = recipient_balance + amount
-        elif tx_type == 'MINT_TOKEN':
-            token_id = payload.get('token_id')
-            if token_id not in self.state['tokens']:
-                self.state['tokens'][token_id] = recipient
+        
         elif tx_type == 'CREATE_SALE_CONTRACT':
-            contract_id = payload.get('contract_id')
+            payload = tx['data'].get('payload', {})
             token_id = payload.get('token_id')
-            price = payload.get('price')
-            conditions = payload.get('conditions')
-            valid_until = payload.get('valid_until')
             if token_id in self.state['tokens'] and self.state['tokens'][token_id] == sender:
-                self.state['contracts'][contract_id] = {
-                    'token_id': token_id, 
-                    'seller': sender, 
-                    'price': price, 
-                    'conditions': conditions, 
-                    'valid_until': valid_until, 
-                    'status': 'OPEN'
+                self.state['contracts'][payload.get('contract_id')] = {
+                    'token_id': token_id, 'seller': sender, 'price': payload.get('price'),
+                    'conditions': payload.get('conditions'), 'valid_until': payload.get('valid_until'), 'status': 'OPEN'
                 }
         elif tx_type == 'EXECUTE_SALE_CONTRACT':
             contract_id = payload.get('contract_id')
             contract = self.state['contracts'].get(contract_id)
             buyer = sender
-            
-            if not (contract and contract['status'] == 'OPEN'):
-                print(f"Auditoria: Falha na compra. Contrato {contract_id[:8]} não está aberto.")
-                return 
-
-            if time.time() > contract['valid_until']:
-                print(f"Auditoria: Falha na compra. Contrato {contract_id[:8]} expirou.")
+            if not (contract and contract['status'] == 'OPEN'): return
+            if time.time() > contract.get('valid_until', float('inf')):
                 self.state['contracts'][contract_id]['status'] = 'EXPIRED'
                 return
-
             price = contract['price']
-            if sender_balance < price:
-                print(f"Auditoria: Falha na compra. Saldo insuficiente.")
-                return
-
+            if sender_balance < price: return
             seller = contract['seller']
             token_id = contract['token_id']
-            self.state['balances'][buyer] -= price
+            self.state['balances'][buyer] = sender_balance - price
             self.state['balances'][seller] = self.state['balances'].get(seller, 0) + price
             self.state['tokens'][token_id] = buyer
             self.state['contracts'][contract_id]['status'] = 'CLOSED'
             self.state['contracts'][contract_id]['buyer'] = buyer
-            print(f"Auditoria: Compra do contrato {contract_id[:8]} executada com sucesso.")
 
     def save_chain(self):
-        with open(self.chain_file, 'w') as f:
-            json.dump(self.chain, f, indent=4)
+        with open(self.chain_file, 'w') as f: json.dump(self.chain, f, indent=4)
 
     def load_chain_and_rebuild_state(self):
         try:
-            with open(self.chain_file, 'r') as f:
-                self.chain = json.load(f)
+            with open(self.chain_file, 'r') as f: self.chain = json.load(f)
             self.rebuild_state_from_chain()
-        except (FileNotFoundError, json.JSONDecodeError):
-            self.chain = []
+        except (FileNotFoundError, json.JSONDecodeError): self.chain = []
 
     def create_block(self, proof, previous_hash):
         block = {
-            'index': len(self.chain) + 1,
-            'timestamp': time.time(),
-            'transactions': self.pending_transactions,
-            'proof': proof,
+            'index': len(self.chain) + 1, 'timestamp': time.time(),
+            'transactions': self.pending_transactions, 'proof': proof,
             'previous_hash': previous_hash or self.hash(self.chain[-1]),
         }
         for tx in self.pending_transactions:
@@ -130,30 +111,27 @@ class Blockchain:
         self.chain.append(block)
         self.save_chain()
         return block
-    
+
     def add_block(self, block):
         last_block = self.last_block
-        if block['previous_hash'] != self.hash(last_block):
-            return False
-        if not self.valid_proof(last_block['proof'], block['proof']):
-            return False
-        if not block['transactions']:
+        if (block['previous_hash'] != self.hash(last_block) or
+            block['index'] != last_block['index'] + 1 or
+            not self.valid_proof(last_block['proof'], block['proof'])):
             return False
         
-        self.pending_transactions = block['transactions']
-        recreated_block = {
-            'index': block['index'],
-            'timestamp': block['timestamp'],
-            'transactions': self.pending_transactions,
-            'proof': block['proof'],
-            'previous_hash': block['previous_hash'],
-        }
-        for tx in self.pending_transactions:
-            self._process_transaction_for_state_update(tx)
-        self.pending_transactions = []
-        self.chain.append(recreated_block)
-        self.save_chain()
-        return True
+        temp_chain = self.chain + [block]
+        if self.is_chain_valid(temp_chain):
+            self.chain.append(block)
+            self.rebuild_state_from_chain()
+            
+            received_tx_ids = {json.dumps(tx['transaction'], sort_keys=True) for tx in block.get('transactions', [])}
+            self.pending_transactions = [
+                ptx for ptx in self.pending_transactions
+                if json.dumps(ptx['transaction'], sort_keys=True) not in received_tx_ids
+            ]
+            self.save_chain()
+            return True
+        return False
 
     @property
     def last_block(self):
@@ -164,26 +142,30 @@ class Blockchain:
         if sender_address == "0":
             self.pending_transactions.append({'transaction': transaction, 'signature': 'reward'})
             return self.last_block['index'] + 1
+        
         if Wallet.verify_transaction(sender_address, transaction, signature):
+            if transaction['data'].get('type') == 'MINT_TOKEN' and sender_address != self.notary_public_key:
+                return False
             self.pending_transactions.append({'transaction': transaction, 'signature': signature})
             return self.last_block['index'] + 1
         return False
 
     @staticmethod
     def hash(block):
-        block_string = json.dumps(block, sort_keys=True).encode()
-        return hashlib.sha256(block_string).hexdigest()
+        return hashlib.sha256(json.dumps(block, sort_keys=True).encode()).hexdigest()
+
+    @staticmethod
+    def hash_transaction(transaction):
+        return hashlib.sha256(json.dumps(transaction, sort_keys=True).encode()).hexdigest()
 
     def proof_of_work(self, last_proof):
         proof = 0
-        while not self.valid_proof(last_proof, proof):
-            proof += 1
+        while not self.valid_proof(last_proof, proof): proof += 1
         return proof
 
     @staticmethod
     def valid_proof(last_proof, proof):
-        guess = f'{last_proof}{proof}'.encode()
-        guess_hash = hashlib.sha256(guess).hexdigest()
+        guess_hash = hashlib.sha256(f'{last_proof}{proof}'.encode()).hexdigest()
         return guess_hash[:4] == "0000"
     
     def add_node(self, address):
@@ -191,65 +173,115 @@ class Blockchain:
 
     def resolve_conflicts(self):
         neighbours = self.nodes
-        new_chain = None
-        max_length = len(self.chain)
+        new_chain, max_length = None, len(self.chain)
         for node in neighbours:
             try:
-                response = requests.get(f'http://{node}/chain')
+                response = requests.get(f'http://{node}/chain', timeout=2)
                 if response.status_code == 200:
-                    length = response.json()['length']
-                    chain = response.json()['chain']
-                    if length > max_length:
-                        max_length = length
-                        new_chain = chain
-            except requests.exceptions.RequestException:
-                continue
+                    length, chain = response.json()['length'], response.json()['chain']
+                    if length > max_length and self.is_chain_valid(chain):
+                        max_length, new_chain = length, chain
+            except requests.exceptions.RequestException: continue
         if new_chain:
             self.chain = new_chain
             self.save_chain()
             self.rebuild_state_from_chain()
             return True
         return False
+        
+    def is_chain_valid(self, chain):
+        if not chain: return False
+        last_block, current_index = chain[0], 1
+        while current_index < len(chain):
+            block = chain[current_index]
+            if block['previous_hash'] != self.hash(last_block) or \
+               not self.valid_proof(last_block['proof'], block['proof']):
+                return False
+            last_block, current_index = block, current_index + 1
+        return True
 
     def get_token_history(self, token_id):
         history = []
+        separator = "=" * 60
+        
         for block in self.chain:
             for tx_data in block['transactions']:
                 tx = tx_data['transaction']
                 tx_type = tx['data'].get('type')
                 payload = tx['data'].get('payload', {})
-                
                 current_tx_token_id = None
+                
                 if tx_type in ['MINT_TOKEN', 'CREATE_SALE_CONTRACT']:
                     current_tx_token_id = payload.get('token_id')
                 elif tx_type == 'EXECUTE_SALE_CONTRACT':
                     contract_id = payload.get('contract_id')
-                    contract = self.get_contracts().get(contract_id, {})
-                    current_tx_token_id = contract.get('token_id')
+                    original_contract = self._find_contract_in_history(contract_id)
+                    if original_contract:
+                        current_tx_token_id = original_contract.get('token_id')
 
                 if current_tx_token_id == token_id:
-                    entry = {
-                        'block_index': block['index'],
-                        'timestamp': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(block['timestamp'])),
-                        'event_type': tx_type,
-                        'details': {}
-                    }
-                    if tx_type == 'MINT_TOKEN':
-                        entry['details']['criador'] = hashlib.sha256(tx['recipient'].encode()).hexdigest()[:16]
-                    elif tx_type == 'CREATE_SALE_CONTRACT':
-                        entry['details']['vendedor'] = hashlib.sha256(tx['sender'].encode()).hexdigest()[:16]
-                        entry['details']['preco'] = payload.get('price')
-                        entry['details']['condicoes'] = payload.get('conditions')
-                    elif tx_type == 'EXECUTE_SALE_CONTRACT':
-                        contract = self.get_contracts().get(payload.get('contract_id'))
-                        if contract:
-                            entry['details']['vendedor'] = hashlib.sha256(contract['seller'].encode()).hexdigest()[:16]
-                            entry['details']['comprador'] = hashlib.sha256(tx['sender'].encode()).hexdigest()[:16]
-                            entry['details']['preco'] = contract['price']
+                    tx_hash = self.hash_transaction(tx)
+                    timestamp = time.strftime('%d/%m/%Y %H:%M:%S', time.localtime(block['timestamp']))
+                    card = [separator]
                     
-                    history.append(entry)
+                    if tx_type == 'MINT_TOKEN':
+                        owner_hash = hashlib.sha256(tx['recipient'].encode()).hexdigest()[:16]
+                        card.append("EVENTO:         REGISTRO (MINT)")
+                        card.append(f"TIMESTAMP:      {timestamp}")
+                        card.append(f"BLOCO:          #{block['index']} ({self.hash(block)[:16]}...)")
+                        card.append(f"HASH DA TX:     {tx_hash[:16]}...")
+                        card.append("\nDETALHES:")
+                        card.append(f"  - Ativo '{token_id}' criado pelo Cartório.")
+                        card.append(f"  - Dono Inicial: {owner_hash}")
+
+                    elif tx_type == 'CREATE_SALE_CONTRACT':
+                        seller_hash = hashlib.sha256(tx['sender'].encode()).hexdigest()[:16]
+                        price = payload.get('price')
+                        card.append("EVENTO:         OFERTA DE VENDA")
+                        card.append(f"TIMESTAMP:      {timestamp}")
+                        card.append(f"BLOCO:          #{block['index']} ({self.hash(block)[:16]}...)")
+                        card.append(f"HASH DA TX:     {tx_hash[:16]}...")
+                        card.append("\nDETALHES:")
+                        card.append(f"  - Vendedor:   {seller_hash}")
+                        card.append(f"  - Preço:      {price} moedas")
+
+                    elif tx_type == 'EXECUTE_SALE_CONTRACT':
+                        original_contract = self._find_contract_in_history(payload.get('contract_id'))
+                        if original_contract:
+                            seller_hash = hashlib.sha256(original_contract['seller'].encode()).hexdigest()[:16]
+                            buyer_hash = hashlib.sha256(tx['sender'].encode()).hexdigest()[:16]
+                            price = original_contract['price']
+                            card.append("EVENTO:         TRANSFERÊNCIA (VENDA CONCLUÍDA)")
+                            card.append(f"TIMESTAMP:      {timestamp}")
+                            card.append(f"BLOCO:          #{block['index']} ({self.hash(block)[:16]}...)")
+                            card.append(f"HASH DA TX:     {tx_hash[:16]}...")
+                            card.append("\nDETALHES:")
+                            card.append(f"  - De (Vendedor): {seller_hash}")
+                            card.append(f"  - Para (Comprador): {buyer_hash}")
+                            card.append(f"  - Valor: {price} moedas")
+                    
+                    card.append(separator)
+                    history.append("\n".join(card))
         return history
-    
+
+    def _find_contract_in_history(self, contract_id):
+        """
+        CORRIGIDO: Agora retorna um dicionário completo com os dados do payload
+        E a chave 'seller', que é o remetente da transação de criação.
+        """
+        for block in reversed(self.chain):
+            for tx_data in block['transactions']:
+                tx = tx_data['transaction']
+                if tx['data'].get('type') == 'CREATE_SALE_CONTRACT':
+                    payload = tx['data'].get('payload', {})
+                    if payload.get('contract_id') == contract_id:
+                        # Cria um novo dicionário com os dados do payload
+                        contract_data = payload.copy()
+                        # Adiciona a informação do vendedor, que é o remetente da transação
+                        contract_data['seller'] = tx['sender']
+                        return contract_data
+        return None
+
     def get_balance(self, address):
         return self.state['balances'].get(address, 0)
     
