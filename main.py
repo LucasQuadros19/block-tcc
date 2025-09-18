@@ -430,16 +430,21 @@ class MainApplication(BlockchainApp):
         window = ctk.CTkToplevel(self)
         window.grab_set(); window.focus_force()
         window.title("Registrar Novo Ativo (Cartório)")
-        ctk.CTkLabel(window, text="ID Único do Ativo (Ex: Matrícula do Imóvel):").pack(padx=20, pady=5)
-        token_id_entry = ctk.CTkEntry(window, width=350); token_id_entry.pack(padx=20, pady=5)
+        ctk.CTkLabel(window, text="Nome do Ativo (Ex: Casa na Praia):").pack(padx=20, pady=5)
+        asset_name_entry = ctk.CTkEntry(window, width=350); asset_name_entry.pack(padx=20, pady=5)
         ctk.CTkLabel(window, text="Chave Pública do Primeiro Proprietário:").pack(padx=20, pady=(10, 5))
         owner_public_key_entry = ctk.CTkTextbox(window, width=350, height=100); owner_public_key_entry.pack(padx=20, pady=5)
         def submit():
-            token_id = token_id_entry.get()
+            asset_name = asset_name_entry.get()
             owner_public_key = owner_public_key_entry.get("1.0", "end-1c").strip()
-            if not token_id or not owner_public_key: return
-            self.log_event("CARTÓRIO", f"Iniciando registro do ativo '{token_id}' para o dono '{owner_public_key[:20]}...'.")
-            self._create_signed_transaction(owner_public_key, {'type': 'MINT_TOKEN', 'payload': {'token_id': token_id}})
+            if not asset_name or not owner_public_key: return
+
+            # Gera o Token NFT único e combina com o nome
+            nft_id = str(uuid.uuid4()).upper()[:8]
+            full_token_id = f"{asset_name} [{nft_id}]"
+
+            self.log_event("CARTÓRIO", f"Iniciando registro do ativo '{full_token_id}' para o dono '{owner_public_key[:20]}...'.")
+            self._create_signed_transaction(owner_public_key, {'type': 'MINT_TOKEN', 'payload': {'token_id': full_token_id}})
             window.destroy()
         ctk.CTkButton(window, text="Assinar Registro e Minerar", command=submit).pack(padx=20, pady=20)
 
