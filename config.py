@@ -3,14 +3,14 @@
 
 # A Chave Pública do "Governo". Esta é a única entidade que pode autorizar novos cartórios.
 GOVERNMENT_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
-MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEAuJtjVTSiOpFQ5Kw6kJpfrCQzIxV
-tlt4UwRpiSknLbtsduTCM/7d9AQdrCrd0RXX1w7LgezeGCXBaNiRj9iO3g==
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEC3ybBw98u4jwWaYIrY8g0/ronFHL
+4VhRHt+SaVnJfMDC636QD16Lajh2ZKFSe4H1MuNHWq9PzOkzbKKAKiEsIg==
 -----END PUBLIC KEY-----"""
 
 # A Chave Pública do "Órgão Governamental" que recebe os impostos.
 TAX_AUTHORITY_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
-MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEtPKy5r1mlZjSZTaOCqFcG8/37VDN
-kI9T18HHrVfewszFv6dl+c+h0CA4eC6AZRsmUlzHa/68uQdEMDZ++xgygA==
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEfojxYyiLX164wTKhYWoughS4KyUX
+u5RtF8ZkHKT6zW5vGqryOIR5y5dJQjA79a2fO7Fpo8fZow3ZhlSvmML1IA==
 -----END PUBLIC KEY-----"""
 
 # A chave do cartório inicial foi removida. O governo deve credenciar o primeiro cartório dinamicamente.
