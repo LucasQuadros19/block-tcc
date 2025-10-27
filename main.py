@@ -21,8 +21,7 @@ except ImportError:
     print("AVISO: config.py não encontrado ou incompleto. Algumas funcionalidades podem falhar.")
     GOVERNMENT_PUBLIC_KEY = "GOV_KEY_PLACEHOLDER_RUN_SETUP"
     TAX_AUTHORITY_PUBLIC_KEY = "TAX_KEY_PLACEHOLDER_RUN_SETUP"
-
-NETWORK_NODES = ['127.0.0.1:5001', '127.0.0.1:5002', '127.0.0.1:5003']
+NETWORK_NODES = ['127.0.0.1:5001', '127.0.0.1:5002', '127.0.0.1:5003', '127.0.0.1:5004', '127.0.0.1:5005']
 SYNC_INTERVAL_MS = 10000
 LOCALITIES = ["São Paulo", "Rio de Janeiro", "Curitiba", "Recife", "Belo Horizonte"]
 
