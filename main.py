@@ -276,9 +276,9 @@ class MainApplication(BlockchainApp):
 
         # Atualiza a GUI
         if self.is_government:
-            self.username_label.configure(text="Bem-vindo, Governo")
+            self.username_label.configure(text="Bem-vindo, Ente Regulador")
             self.username_icon.configure(text="👑")
-            self.log_event("INICIALIZAÇÃO", "Sessão de Governo iniciada.")
+            self.log_event("INICIALIZAÇÃO", "Sessão de Ente Regulador iniciada.")
         elif self.is_notary:
             name = f"Cartório {hashlib.sha256(user_pk.encode()).hexdigest()[:8]} ({self.notary_locality})"
             self.username_label.configure(text=f"Bem-vindo, {name}")
@@ -938,7 +938,7 @@ class MainApplication(BlockchainApp):
             if notary_public_key == self.current_user_wallet.public_key.strip():
                 self.show_message("Erro de Validação", "Não é possível credenciar a si mesmo.", is_error=True)
                 return
-            self.log_event("GOVERNO", f"Iniciando credenciamento do cartório em {locality}.")
+            self.log_event("Ente Regulador", f"Iniciando credenciamento do cartório em {locality}.")
             self._create_signed_transaction(
                 recipient=notary_public_key,
                 data={'type': 'REGISTER_NOTARY', 'payload': {'locality': locality}},

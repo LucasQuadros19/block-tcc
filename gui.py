@@ -44,7 +44,7 @@ class BlockchainApp(ctk.CTk):
         self.validation_button = ctk.CTkButton(self.actions_frame, text="Validar Vendas")
         
         # Ações de Governança
-        self.governance_label = ctk.CTkLabel(self.actions_frame, text="Governança", font=ctk.CTkFont(weight="bold"))
+        self.governance_label = ctk.CTkLabel(self.actions_frame, text="Regulação", font=ctk.CTkFont(weight="bold"))
         self.register_notary_button = ctk.CTkButton(self.actions_frame, text="Credenciar Cartório")
         self.certify_identity_button = ctk.CTkButton(self.actions_frame, text="Certificar Identidade")
         
