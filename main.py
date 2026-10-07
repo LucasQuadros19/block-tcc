@@ -14,13 +14,10 @@ import requests
 import time
 from datetime import datetime
 
-# Tenta importar do config.py, mas define padrões se falhar
 try:
     from config import GOVERNMENT_PUBLIC_KEY, TAX_AUTHORITY_PUBLIC_KEY
 except ImportError:
-    print("AVISO: config.py não encontrado ou incompleto. Algumas funcionalidades podem falhar.")
-    GOVERNMENT_PUBLIC_KEY = "GOV_KEY_PLACEHOLDER_RUN_SETUP"
-    TAX_AUTHORITY_PUBLIC_KEY = "TAX_KEY_PLACEHOLDER_RUN_SETUP"
+    sys.exit("config.py não encontrado. Rode primeiro: python init.py")
 NETWORK_NODES = ['127.0.0.1:5001', '127.0.0.1:5002', '127.0.0.1:5003', '127.0.0.1:5004', '127.0.0.1:5005']
 SYNC_INTERVAL_MS = 10000
 LOCALITIES = ["São Paulo", "Rio de Janeiro", "Curitiba", "Recife", "Belo Horizonte"]
@@ -45,13 +42,14 @@ class SimpleUserManager:
     def register(self, username, password):
         if not (username and password): return False, "Usuário e senha não podem estar em branco."
         if username in self.accounts: return False, "Usuário já existe."
-        if username in ["government", "initial_notary", "tax_authority"]: return False, "Este nome de usuário é reservado."
+        if username in ["government", "tax_authority"]: return False, "Este nome de usuário é reservado."
 
-        password_hash = hashlib.sha256(password.encode()).hexdigest()
+        # A senha não é guardada: ela só serve para cifrar a carteira (AES-GCM),
+        # e o login é validado pela própria decifragem.
         wallet = Wallet()
         try:
             if wallet.create_and_save(password, name=username):
-                self.accounts[username] = {"password_hash": password_hash, "wallet_name": username}
+                self.accounts[username] = {"wallet_name": username}
                 self.save_accounts()
                 return True, "Usuário registrado com sucesso."
             else:
@@ -70,7 +68,7 @@ class SimpleUserManager:
 
         temp_wallet = Wallet()
         if is_official_account and not temp_wallet.wallet_exists(name=username):
-             print(f"ERRO: Carteira para a conta oficial '{username}' não encontrada. Execute setup.py.")
+             print(f"ERRO: Carteira para a conta oficial '{username}' não encontrada. Execute init.py.")
              return None, None
 
         wallet = Wallet()
@@ -91,7 +89,7 @@ class SimpleUserManager:
                  return None, None
             return username, wallet
 
-        elif account and account["password_hash"] == hashlib.sha256(password.encode()).hexdigest():
+        elif account:
              return username, wallet
         else:
              return None, None
@@ -179,7 +177,7 @@ class MainApplication(BlockchainApp):
         except Exception:
             window.geometry(f"350x150")
 
-    # --- NOVO: Funções de Toast ---
+    # --- Notificação rápida (toast) ---
     def show_toast(self, message):
         """Mostra uma notificação rápida sem pop-up."""
         if self.toast_after_id:
@@ -194,7 +192,6 @@ class MainApplication(BlockchainApp):
         """Esconde a notificação toast."""
         self.toast_label.place_forget()
         self.toast_after_id = None
-    # --- Fim das Funções de Toast ---
 
     def show_login_register_window(self):
         self.login_reg_window = ctk.CTkToplevel(self)
@@ -328,7 +325,6 @@ class MainApplication(BlockchainApp):
         self.explorer_button.configure(command=lambda: self.select_frame("explorer"))
         self.audit_button.configure(command=lambda: self.select_frame("audit"))
         self.validation_button.configure(command=lambda: self.select_frame("validation"))
-        # CORREÇÃO: Força atualização da GUI ao clicar no botão manual
         self.sync_button.configure(command=lambda: self.sync_chain(force_gui_update=True))
         self.register_asset_button.configure(command=self.show_register_asset_window)
         self.faucet_button.configure(command=self.request_faucet_funds)
@@ -360,7 +356,6 @@ class MainApplication(BlockchainApp):
         self.update_role_based_widgets()
         self.update_all_displays() # Atualiza a tela ao trocar
 
-    # CORREÇÃO: Sincronização periódica não força atualização da GUI
     def periodic_sync(self):
         # A sincronização de rede sempre ocorre
         # A atualização da GUI dentro de sync_chain() será condicional
@@ -395,8 +390,7 @@ class MainApplication(BlockchainApp):
                 self.update_all_displays()
                 self.update_role_based_widgets()
         except Exception as e:
-            # print(f"Erro processando fila da GUI: {e}")
-            pass
+            print(f"Erro processando fila da GUI: {e}")
         finally:
             if self.winfo_exists():
                 self.after(250, self.process_gui_queue)
@@ -410,21 +404,8 @@ class MainApplication(BlockchainApp):
             if not self.blockchain.pending_transactions:
                 self.log_event("MINERAÇÃO", "Nenhuma transação pendente para minerar.")
                 return
-            
-            last_block = self.blockchain.last_block
-            last_proof = 0
-            if last_block:
-                last_proof = last_block['proof']
-            
-            proof = self.blockchain.proof_of_work(last_proof)
-            self.blockchain.add_transaction("0", self.current_user_wallet.public_key, "reward", {'type': 'MINING_REWARD'})
-            
-            previous_hash = '0'
-            if last_block:
-                previous_hash = self.blockchain.hash(last_block)
-                
-            new_block = self.blockchain.create_block(proof, previous_hash)
-            
+            new_block = self.blockchain.mine_block(self.current_user_wallet.public_key)
+
         if new_block:
             self.log_event("MINERAÇÃO", f"Novo bloco #{new_block['index']} minerado com sucesso.")
             self.broadcast_new_block(new_block)
@@ -439,7 +420,6 @@ class MainApplication(BlockchainApp):
             except requests.exceptions.RequestException:
                 self.log_event("ERRO DE REDE", f"Falha ao contatar o nó {node_address}.")
 
-    # CORREÇÃO: Adicionado 'force_gui_update'
     def sync_chain(self, force_gui_update=False):
         if not self.blockchain: return
         replaced = False
@@ -487,7 +467,7 @@ class MainApplication(BlockchainApp):
             tokens = self.blockchain.get_owned_tokens(address)
             for token_id in tokens:
                 status = self.blockchain.get_my_token_status(token_id)
-                action = "Solicitar Venda" if status == "Em Carteira" else ""
+                action = "Solicitar Venda" if status.startswith("Em Carteira") else ""
                 self.token_table.insert("", "end", values=(token_id, status, action), iid=token_id)
             for item in self.tax_receipts_table.get_children(): self.tax_receipts_table.delete(item)
             receipts = self.blockchain.get_tax_receipts(address)
@@ -657,7 +637,6 @@ class MainApplication(BlockchainApp):
         self.token_history_text.insert("0.0", history_text)
         self.token_history_text.configure(state="disabled")
 
-    # CORREÇÃO: Modificado para usar o toast
     def request_faucet_funds(self):
         if not self.blockchain or not self.current_user_wallet: return
         
@@ -666,7 +645,7 @@ class MainApplication(BlockchainApp):
             sender_pk="0",
             data={'type': 'FAUCET'},
             success_message="Moedas de teste solicitadas. Minerando...",
-            show_popup_on_success=False # <--- AQUI A MUDANÇA
+            show_popup_on_success=False
         )
 
     def show_transfer_window(self):
@@ -822,9 +801,9 @@ class MainApplication(BlockchainApp):
         ctk.CTkLabel(scrollable_frame, text="Chave Pública do Proprietário:").pack(anchor="w", padx=20)
         self.asset_owner_pk_entry = ctk.CTkTextbox(scrollable_frame, width=700, height=100)
         self.asset_owner_pk_entry.pack(padx=20, pady=5, anchor="w", fill="x")
-        ctk.CTkButton(scrollable_frame, text="Assinar Registro e Minerar", command=self.submit_register_asset).pack(padx=20, pady=20, anchor="w")
+        ctk.CTkButton(scrollable_frame, text="Assinar Registro e Minerar", command=self._submit_register_asset).pack(padx=20, pady=20, anchor="w")
 
-    def submit_register_asset(self):
+    def _submit_register_asset(self):
         asset_type = self.asset_type_entry.get().strip()
         area = self.asset_area_entry.get().strip()
         locality = self.asset_locality_combo.get()
@@ -844,11 +823,13 @@ class MainApplication(BlockchainApp):
             return
         nft_id = str(uuid.uuid4()).upper()[:8]
         token_id = f"{asset_type.replace(' ', '-').upper()}-[{nft_id}]"
+        # Arquitetura híbrida (Quadro 1 do artigo): dados pessoais ficam off-chain,
+        # só o hash deles vai para a blockchain.
         offchain_data = {
             "owner_name": owner_name,
-            "owner_cpf_cnpj": owner_cpf,
+            "owner_cpf": owner_cpf,
             "full_address": full_address,
-            "documents_link": docs_link,
+            "documents_mock": docs_link,
             "registered_by_notary_pk": self.current_user_wallet.public_key.strip(),
             "registered_at": time.time()
         }
@@ -871,7 +852,6 @@ class MainApplication(BlockchainApp):
         )
         self.asset_window.destroy()
 
-    # CORREÇÃO: Adicionado 'show_popup_on_success'
     def _create_signed_transaction(self, recipient, data, success_message="Ação enviada à rede.", sender_pk=None, show_popup_on_success=True):
         if sender_pk == "0":
             tx_added = False
@@ -998,9 +978,9 @@ class MainApplication(BlockchainApp):
         if details_offchain:
             details.append(f"\n--- Detalhes Privados (Off-Chain - Local) ---")
             details.append(f"Proprietário: {details_offchain.get('owner_name', 'N/A')}")
-            details.append(f"CPF/CNPJ: {details_offchain.get('owner_cpf_cnpj', 'N/A')}")
+            details.append(f"CPF/CNPJ: {details_offchain.get('owner_cpf', 'N/A')}")
             details.append(f"Endereço: {details_offchain.get('full_address', 'N/A')}")
-            details.append(f"Documentos: {details_offchain.get('documents_link', 'N/A')}")
+            details.append(f"Documentos: {details_offchain.get('documents_mock', 'N/A')}")
         else:
             details.append(f"\n--- Detalhes Privados (Off-Chain - Local) ---")
             details.append(f"!!! DADOS OFF-CHAIN NÃO ENCONTRADOS NO DB LOCAL DESTE NÓ !!!")

@@ -39,7 +39,6 @@ class Wallet:
              print(f"AVISO: A carteira '{name}' já existe. Não será sobrescrevida.")
              # Tenta carregar a chave pública existente como fallback
              try:
-                 # CORREÇÃO: Remove .strip() para carregar a chave como está no arquivo
                  with open(public_key_file, 'r') as f: self.public_key = f.read()
                  self.private_key = None # Não temos a senha para carregar a privada
                  return True # Indica sucesso parcial (só carregou pública)
@@ -49,7 +48,6 @@ class Wallet:
 
         key = ECC.generate(curve='P-256')
         self.private_key = key.export_key(format='PEM')
-        # CORREÇÃO: Remove .strip() para armazenar a chave PEM completa (multi-linha)
         self.public_key = key.public_key().export_key(format='PEM')
 
         salt = get_random_bytes(16)
@@ -89,7 +87,6 @@ class Wallet:
         
         try:
             with open(public_key_file, 'r') as f:
-                # CORREÇÃO: Remove .strip() para carregar a chave como está no arquivo
                 self.public_key = f.read()
 
             with open(private_key_file, 'r') as f:
@@ -130,7 +127,7 @@ class Wallet:
     @staticmethod
     def verify_transaction(public_key_pem, transaction, signature):
         try:
-            # CORREÇÃO MANTIDA: A biblioteca de criptografia precisa da chave limpa
+            # A biblioteca de criptografia precisa da chave sem espaços extras
             key = ECC.import_key(public_key_pem.strip())
             verifier = DSS.new(key, 'fips-186-3')
             tx_string = json.dumps(transaction, sort_keys=True, separators=(',', ':')).encode('utf-8')

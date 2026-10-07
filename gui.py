@@ -76,7 +76,7 @@ class BlockchainApp(ctk.CTk):
         for frame in [self.blockchain_frame, self.profile_frame, self.marketplace_frame, self.audit_frame, self.explorer_frame, self.validation_frame]:
              frame.grid_forget()
 
-        # --- Toast Notification Label (NOVO) ---
+        # --- Toast Notification Label ---
         self.toast_label = ctk.CTkLabel(self.main_frame, text="", fg_color="#222222", corner_radius=8, font=ctk.CTkFont(size=14))
         # Será posicionado pelo main.py quando ativado
 
